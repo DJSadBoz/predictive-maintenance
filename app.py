@@ -1,8 +1,12 @@
 
+import io
+from pathlib import Path
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 from streamlit_autorefresh import st_autorefresh
+
 
 # ==========================================
 # 1. CẤU HÌNH TRANG
@@ -16,6 +20,7 @@ st.set_page_config(
 
 st.title("HỆ THỐNG GIÁM SÁT VÀ BẢO TRÌ DỰ ĐOÁN")
 st.caption("Predictive Maintenance System")
+
 
 # ==========================================
 # 2. CÁC CỘT DỮ LIỆU
@@ -59,42 +64,87 @@ sensor_units = {
     "Áp_suất_đầu_ra_bar": "bar"
 }
 
+BASE_DIR = Path(__file__).parent
+
+PARQUET_FILE = BASE_DIR / "ket_qua_canh_bao.parquet"
+CSV_FILE = BASE_DIR / "ket_qua_canh_bao.csv"
+
+
 # ==========================================
-# 3. ĐỌC DỮ LIỆU MẶC ĐỊNH
+# 3. ĐỌC DỮ LIỆU PARQUET VÀ CSV
 # ==========================================
 
 @st.cache_data
-def load_default_data():
-    return pd.read_csv("ket_qua_canh_bao.csv")
+def load_parquet(file_bytes):
+    return pd.read_parquet(
+        io.BytesIO(file_bytes),
+        engine="pyarrow"
+    )
+
+
+@st.cache_data
+def load_csv(file_bytes):
+    return pd.read_csv(
+        io.BytesIO(file_bytes)
+    )
 
 
 # ==========================================
-# 4. TẢI FILE CSV
+# 4. QUẢN LÝ VÀ LỰA CHỌN DỮ LIỆU
 # ==========================================
 
 st.sidebar.header("QUẢN LÝ DỮ LIỆU")
 
 uploaded_file = st.sidebar.file_uploader(
-    "Tải file CSV mới",
-    type=["csv"]
+    "Tải file dữ liệu",
+    type=["csv", "parquet"],
+    help="Hỗ trợ file CSV và Parquet."
 )
 
 try:
 
     if uploaded_file is not None:
 
-        df = pd.read_csv(uploaded_file)
+        file_bytes = uploaded_file.getvalue()
+
+        if uploaded_file.name.lower().endswith(".parquet"):
+
+            df = load_parquet(file_bytes)
+
+        else:
+
+            df = load_csv(file_bytes)
 
         source = uploaded_file.name
 
-    else:
+    elif PARQUET_FILE.exists():
 
-        df = load_default_data()
+        df = load_parquet(
+            PARQUET_FILE.read_bytes()
+        )
+
+        source = "ket_qua_canh_bao.parquet"
+
+    elif CSV_FILE.exists():
+
+        df = load_csv(
+            CSV_FILE.read_bytes()
+        )
 
         source = "ket_qua_canh_bao.csv"
 
+    else:
+
+        st.error(
+            "Không tìm thấy dữ liệu mặc định. "
+            "Hãy đưa ket_qua_canh_bao.parquet lên GitHub "
+            "hoặc tải file CSV/Parquet từ máy tính."
+        )
+
+        st.stop()
+
     # ==========================================
-    # 5. KIỂM TRA CẤU TRÚC
+    # 5. KIỂM TRA CẤU TRÚC DỮ LIỆU
     # ==========================================
 
     missing_columns = [
@@ -147,7 +197,6 @@ try:
 
     current_source = (
         source,
-        uploaded_file.name if uploaded_file is not None else "default",
         len(df),
         str(df["Thời_gian"].iloc[0]),
         str(df["Thời_gian"].iloc[-1])
@@ -168,25 +217,37 @@ try:
         st.session_state.current_index = 0
         st.session_state.playing = False
 
+    # Bảo đảm vị trí bản ghi luôn hợp lệ
+
+    st.session_state.current_index = min(
+        max(0, st.session_state.current_index),
+        len(df) - 1
+    )
+
     # ==========================================
     # 8. THÔNG TIN NGUỒN DỮ LIỆU
     # ==========================================
 
-    st.sidebar.success(f"Đang sử dụng: {source}")
+    st.sidebar.success(
+        f"Đang sử dụng: {source}"
+    )
 
     st.sidebar.metric(
         "Tổng số bản ghi",
         f"{len(df):,}"
     )
 
+    min_time = df["Thời_gian"].min()
+    max_time = df["Thời_gian"].max()
+
     st.sidebar.write(
         "**Thời gian bắt đầu:**",
-        df["Thời_gian"].min().strftime("%d/%m/%Y %H:%M")
+        min_time.strftime("%d/%m/%Y %H:%M")
     )
 
     st.sidebar.write(
         "**Thời gian kết thúc:**",
-        df["Thời_gian"].max().strftime("%d/%m/%Y %H:%M")
+        max_time.strftime("%d/%m/%Y %H:%M")
     )
 
     # ==========================================
@@ -220,21 +281,31 @@ try:
 
     with col1:
 
-        if st.button("▶ BẮT ĐẦU", use_container_width=True):
+        if st.button(
+            "▶ BẮT ĐẦU",
+            use_container_width=True
+        ):
 
+            st.session_state.current_index = 0
             st.session_state.playing = True
             st.rerun()
 
     with col2:
 
-        if st.button("⏸ TẠM DỪNG", use_container_width=True):
+        if st.button(
+            "⏸ TẠM DỪNG",
+            use_container_width=True
+        ):
 
             st.session_state.playing = False
             st.rerun()
 
     with col3:
 
-        if st.button("▶ TIẾP TỤC", use_container_width=True):
+        if st.button(
+            "▶ TIẾP TỤC",
+            use_container_width=True
+        ):
 
             if st.session_state.current_index >= len(df) - 1:
                 st.session_state.current_index = 0
@@ -244,42 +315,81 @@ try:
 
     with col4:
 
-        if st.button("↺ ĐẶT LẠI", use_container_width=True):
+        if st.button(
+            "↺ ĐẶT LẠI",
+            use_container_width=True
+        ):
 
             st.session_state.playing = False
             st.session_state.current_index = 0
             st.rerun()
 
     # ==========================================
-    # 11. ĐIỀU HƯỚNG THỜI GIAN
+    # 11. CHỌN NGÀY VÀ GIỜ CỤ THỂ
     # ==========================================
 
     st.subheader("Điều hướng thời gian")
 
-    min_time = df["Thời_gian"].min()
-    max_time = df["Thời_gian"].max()
-
-    selected_time = st.datetime_input(
-        "Chọn ngày và giờ muốn xem",
-        value=df.iloc[
-            st.session_state.current_index
-        ]["Thời_gian"].to_pydatetime(),
-        min_value=min_time.to_pydatetime(),
-        max_value=max_time.to_pydatetime(),
-        key="selected_datetime"
+    st.caption(
+        "Chọn ngày và giờ cụ thể để xem dữ liệu. "
+        "Hệ thống không sử dụng thanh trượt."
     )
 
-    if st.button("⏩ CHUYỂN ĐẾN THỜI ĐIỂM"):
+    current_record_time = df.iloc[
+        st.session_state.current_index
+    ]["Thời_gian"]
 
-        target_time = pd.Timestamp(selected_time)
+    date_col, time_col = st.columns(2)
 
-        target_index = (
-            df["Thời_gian"] - target_time
-        ).abs().idxmin()
+    with date_col:
 
-        st.session_state.current_index = int(target_index)
+        selected_date = st.date_input(
+            "Chọn ngày",
+            value=current_record_time.date(),
+            min_value=min_time.date(),
+            max_value=max_time.date(),
+            format="DD/MM/YYYY",
+            key="selected_date"
+        )
 
-        st.rerun()
+    with time_col:
+
+        selected_time = st.time_input(
+            "Chọn giờ, phút, giây",
+            value=current_record_time.time(),
+            step=1,
+            key="selected_time"
+        )
+
+    if st.button(
+        "📍 CHUYỂN ĐẾN THỜI ĐIỂM",
+        use_container_width=True
+    ):
+
+        target_time = pd.Timestamp.combine(
+            selected_date,
+            selected_time
+        )
+
+        if target_time < min_time or target_time > max_time:
+
+            st.error(
+                "Thời điểm đã chọn nằm ngoài khoảng thời gian dữ liệu."
+            )
+
+        else:
+
+            target_index = (
+                df["Thời_gian"] - target_time
+            ).abs().idxmin()
+
+            st.session_state.current_index = int(
+                target_index
+            )
+
+            st.session_state.playing = False
+
+            st.rerun()
 
     # ==========================================
     # 12. TUA NHANH VÀ TUA LÙI
@@ -291,7 +401,10 @@ try:
 
     with col_back:
 
-        if st.button("⏪ LÙI 60 BẢN GHI", use_container_width=True):
+        if st.button(
+            "⏪ LÙI 60 BẢN GHI",
+            use_container_width=True
+        ):
 
             st.session_state.current_index = max(
                 0,
@@ -302,7 +415,10 @@ try:
 
     with col_forward:
 
-        if st.button("⏩ TIẾN 60 BẢN GHI", use_container_width=True):
+        if st.button(
+            "⏩ TIẾN 60 BẢN GHI",
+            use_container_width=True
+        ):
 
             st.session_state.current_index = min(
                 len(df) - 1,
@@ -396,9 +512,21 @@ try:
 
         with cols[i % 3]:
 
+            value = latest[sensor]
+
+            if pd.notna(value):
+
+                display_value = (
+                    f"{value:.2f} {sensor_units[sensor]}"
+                )
+
+            else:
+
+                display_value = "N/A"
+
             st.metric(
                 sensor_names[sensor],
-                f'{latest[sensor]:.2f} {sensor_units[sensor]}'
+                display_value
             )
 
     # ==========================================
@@ -409,7 +537,9 @@ try:
 
     st.header("4. Biểu đồ cảm biến")
 
-    history = df.iloc[:current_index + 1].tail(500)
+    history = df.iloc[
+        :current_index + 1
+    ].tail(500)
 
     selected_sensor = st.selectbox(
         "Chọn cảm biến để xem biểu đồ",
@@ -444,17 +574,14 @@ try:
     st.header("5. Lịch sử dữ liệu đã phát")
 
     st.dataframe(
-        df.iloc[:current_index + 1].tail(10),
+        df.iloc[
+            :current_index + 1
+        ].tail(10),
         use_container_width=True
-    )
-
-except FileNotFoundError:
-
-    st.error(
-        "Không tìm thấy ket_qua_canh_bao.csv. "
-        "Hãy kiểm tra vị trí file."
     )
 
 except Exception as e:
 
-    st.error(f"Có lỗi xảy ra: {e}")
+    st.error(
+        f"Có lỗi xảy ra khi đọc hoặc xử lý dữ liệu: {e}"
+    )
