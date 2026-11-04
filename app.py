@@ -1,18 +1,12 @@
 
-import io
-from pathlib import Path
-from datetime import datetime, date, time, timedelta
-
+import streamlit as st
 import pandas as pd
 import plotly.express as px
-import streamlit as st
-
 from streamlit_autorefresh import st_autorefresh
 
-
-# =========================================================
+# ==========================================
 # 1. CẤU HÌNH TRANG
-# =========================================================
+# ==========================================
 
 st.set_page_config(
     page_title="Predictive Maintenance",
@@ -20,21 +14,25 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("⚙️ HỆ THỐNG BẢO TRÌ DỰ ĐOÁN")
-st.caption(
-    "Giám sát tình trạng máy bơm và phát hiện nguy cơ sự cố "
-    "bằng dữ liệu cảm biến"
-)
+st.title("HỆ THỐNG GIÁM SÁT VÀ BẢO TRÌ DỰ ĐOÁN")
+st.caption("Predictive Maintenance System")
 
+# ==========================================
+# 2. CÁC CỘT DỮ LIỆU
+# ==========================================
 
-# =========================================================
-# 2. CẤU HÌNH DỮ LIỆU
-# =========================================================
+required_columns = [
+    "Thời_gian",
+    "Độ_rung_RMS_mm_s",
+    "Độ_rung_đỉnh_mm_s",
+    "Nhiệt_độ_ổ_trục_C",
+    "Dòng_điện_động_cơ_A",
+    "Lưu_lượng_m3_h",
+    "Áp_suất_đầu_ra_bar",
+    "Ket_qua_tong_hop"
+]
 
-BASE_DIR = Path(__file__).parent
-DATA_FILE = BASE_DIR / "ket_qua_canh_bao.parquet"
-
-SENSOR_COLUMNS = [
+sensor_columns = [
     "Độ_rung_RMS_mm_s",
     "Độ_rung_đỉnh_mm_s",
     "Nhiệt_độ_ổ_trục_C",
@@ -43,78 +41,41 @@ SENSOR_COLUMNS = [
     "Áp_suất_đầu_ra_bar"
 ]
 
-SENSOR_NAMES = {
-    "Độ_rung_RMS_mm_s": "Độ rung RMS (mm/s)",
-    "Độ_rung_đỉnh_mm_s": "Độ rung đỉnh (mm/s)",
-    "Nhiệt_độ_ổ_trục_C": "Nhiệt độ ổ trục (°C)",
-    "Dòng_điện_động_cơ_A": "Dòng điện động cơ (A)",
-    "Lưu_lượng_m3_h": "Lưu lượng (m³/h)",
-    "Áp_suất_đầu_ra_bar": "Áp suất đầu ra (bar)"
+sensor_names = {
+    "Độ_rung_RMS_mm_s": "Độ rung RMS",
+    "Độ_rung_đỉnh_mm_s": "Độ rung đỉnh",
+    "Nhiệt_độ_ổ_trục_C": "Nhiệt độ ổ trục",
+    "Dòng_điện_động_cơ_A": "Dòng điện động cơ",
+    "Lưu_lượng_m3_h": "Lưu lượng",
+    "Áp_suất_đầu_ra_bar": "Áp suất đầu ra"
 }
 
-REQUIRED_COLUMNS = ["Thời_gian"] + SENSOR_COLUMNS
+sensor_units = {
+    "Độ_rung_RMS_mm_s": "mm/s",
+    "Độ_rung_đỉnh_mm_s": "mm/s",
+    "Nhiệt_độ_ổ_trục_C": "°C",
+    "Dòng_điện_động_cơ_A": "A",
+    "Lưu_lượng_m3_h": "m³/h",
+    "Áp_suất_đầu_ra_bar": "bar"
+}
+
+# ==========================================
+# 3. ĐỌC DỮ LIỆU MẶC ĐỊNH
+# ==========================================
+
+@st.cache_data
+def load_default_data():
+    return pd.read_csv("ket_qua_canh_bao.csv")
 
 
-# =========================================================
-# 3. ĐỌC VÀ XỬ LÝ DỮ LIỆU
-# =========================================================
+# ==========================================
+# 4. TẢI FILE CSV
+# ==========================================
 
-@st.cache_data(show_spinner="Đang đọc dữ liệu Parquet...")
-def load_parquet(file_bytes):
-    return pd.read_parquet(io.BytesIO(file_bytes))
-
-
-@st.cache_data(show_spinner="Đang đọc dữ liệu CSV...")
-def load_csv(file_bytes):
-    return pd.read_csv(io.BytesIO(file_bytes))
-
-
-def prepare_data(df):
-
-    df = df.copy()
-
-    missing_columns = [
-        col for col in REQUIRED_COLUMNS
-        if col not in df.columns
-    ]
-
-    if missing_columns:
-        raise ValueError(
-            "Thiếu các cột bắt buộc: "
-            + ", ".join(missing_columns)
-        )
-
-    df["Thời_gian"] = pd.to_datetime(
-        df["Thời_gian"],
-        errors="coerce"
-    )
-
-    for col in SENSOR_COLUMNS:
-        df[col] = pd.to_numeric(
-            df[col],
-            errors="coerce"
-        )
-
-    df = df.dropna(subset=["Thời_gian"])
-
-    df = df.sort_values(
-        "Thời_gian"
-    ).reset_index(drop=True)
-
-    if "Ket_qua_tong_hop" not in df.columns:
-        df["Ket_qua_tong_hop"] = "Chưa xác định"
-
-    return df
-
-
-# =========================================================
-# 4. CHỌN NGUỒN DỮ LIỆU
-# =========================================================
-
-st.sidebar.header("📂 NGUỒN DỮ LIỆU")
+st.sidebar.header("QUẢN LÝ DỮ LIỆU")
 
 uploaded_file = st.sidebar.file_uploader(
-    "Tải dữ liệu CSV từ máy tính",
+    "Tải file CSV mới",
     type=["csv"]
 )
 
@@ -122,430 +83,351 @@ try:
 
     if uploaded_file is not None:
 
-        df = load_csv(
-            uploaded_file.getvalue()
-        )
+        df = pd.read_csv(uploaded_file)
 
-        df = prepare_data(df)
-
-        source_name = uploaded_file.name
-
-    elif DATA_FILE.exists():
-
-        df = load_parquet(
-            DATA_FILE.read_bytes()
-        )
-
-        df = prepare_data(df)
-
-        source_name = DATA_FILE.name
+        source = uploaded_file.name
 
     else:
 
+        df = load_default_data()
+
+        source = "ket_qua_canh_bao.csv"
+
+    # ==========================================
+    # 5. KIỂM TRA CẤU TRÚC
+    # ==========================================
+
+    missing_columns = [
+        col for col in required_columns
+        if col not in df.columns
+    ]
+
+    if missing_columns:
+
         st.error(
-            "Không tìm thấy ket_qua_canh_bao.parquet. "
-            "Hãy kiểm tra file trên GitHub."
+            "File thiếu các cột bắt buộc: "
+            + ", ".join(missing_columns)
         )
 
         st.stop()
 
-except Exception as error:
+    # ==========================================
+    # 6. LÀM SẠCH DỮ LIỆU CƠ BẢN
+    # ==========================================
 
-    st.error(f"Lỗi đọc dữ liệu: {error}")
-    st.stop()
-
-
-if df.empty:
-
-    st.error("Không có dữ liệu hợp lệ.")
-    st.stop()
-
-
-total_rows = len(df)
-
-min_time = df["Thời_gian"].min()
-max_time = df["Thời_gian"].max()
-
-st.sidebar.success(
-    f"Đang sử dụng: {source_name}"
-)
-
-st.sidebar.write(
-    f"**Tổng số bản ghi:** {total_rows:,}"
-)
-
-st.sidebar.write(
-    f"**Thời gian bắt đầu:** "
-    f"{min_time.strftime('%d/%m/%Y %H:%M:%S')}"
-)
-
-st.sidebar.write(
-    f"**Thời gian kết thúc:** "
-    f"{max_time.strftime('%d/%m/%Y %H:%M:%S')}"
-)
-
-
-# =========================================================
-# 5. KHỞI TẠO TRẠNG THÁI
-# =========================================================
-
-if "current_index" not in st.session_state:
-    st.session_state.current_index = 0
-
-if "playing" not in st.session_state:
-    st.session_state.playing = False
-
-if "playback_speed" not in st.session_state:
-    st.session_state.playback_speed = 1
-
-st.session_state.current_index = min(
-    max(0, st.session_state.current_index),
-    total_rows - 1
-)
-
-
-# =========================================================
-# 6. HÀM TÌM BẢN GHI GẦN NHẤT
-# =========================================================
-
-def find_nearest_index(target_time):
-
-    distances = (
-        df["Thời_gian"] - pd.Timestamp(target_time)
-    ).abs()
-
-    return int(distances.idxmin())
-
-
-# =========================================================
-# 7. CHỌN THỜI ĐIỂM CỤ THỂ
-# =========================================================
-
-st.sidebar.divider()
-
-st.sidebar.header("📅 ĐI ĐẾN THỜI ĐIỂM CỤ THỂ")
-
-st.sidebar.caption(
-    "Chọn ngày và nhập giờ muốn xem. "
-    "Không cần sử dụng thanh trượt."
-)
-
-selected_date = st.sidebar.date_input(
-    "Chọn ngày",
-    value=min_time.date(),
-    min_value=min_time.date(),
-    max_value=max_time.date(),
-    format="DD/MM/YYYY",
-    key="selected_date"
-)
-
-selected_time = st.sidebar.time_input(
-    "Nhập giờ, phút, giây",
-    value=time(0, 0, 0),
-    step=1,
-    key="selected_time"
-)
-
-if st.sidebar.button(
-    "📍 ĐI ĐẾN THỜI ĐIỂM",
-    use_container_width=True
-):
-
-    target_time = datetime.combine(
-        selected_date,
-        selected_time
+    df["Thời_gian"] = pd.to_datetime(
+        df["Thời_gian"],
+        errors="coerce"
     )
 
-    if target_time < min_time.to_pydatetime():
+    for col in sensor_columns:
 
-        st.sidebar.warning(
-            "Thời điểm nằm trước dữ liệu bắt đầu."
+        df[col] = pd.to_numeric(
+            df[col],
+            errors="coerce"
         )
 
-    elif target_time > max_time.to_pydatetime():
+    df = df.dropna(
+        subset=["Thời_gian"] + sensor_columns
+    )
 
-        st.sidebar.warning(
-            "Thời điểm nằm sau dữ liệu kết thúc."
-        )
+    df = df.sort_values(
+        "Thời_gian"
+    ).reset_index(drop=True)
 
-    else:
+    if df.empty:
 
-        st.session_state.current_index = (
-            find_nearest_index(target_time)
-        )
+        st.error("Không có dữ liệu hợp lệ.")
 
+        st.stop()
+
+    # ==========================================
+    # 7. KHỞI TẠO TRẠNG THÁI
+    # ==========================================
+
+    current_source = (
+        source,
+        uploaded_file.name if uploaded_file is not None else "default",
+        len(df),
+        str(df["Thời_gian"].iloc[0]),
+        str(df["Thời_gian"].iloc[-1])
+    )
+
+    if "data_source" not in st.session_state:
+        st.session_state.data_source = None
+
+    if "current_index" not in st.session_state:
+        st.session_state.current_index = 0
+
+    if "playing" not in st.session_state:
         st.session_state.playing = False
+
+    if st.session_state.data_source != current_source:
+
+        st.session_state.data_source = current_source
+        st.session_state.current_index = 0
+        st.session_state.playing = False
+
+    # ==========================================
+    # 8. THÔNG TIN NGUỒN DỮ LIỆU
+    # ==========================================
+
+    st.sidebar.success(f"Đang sử dụng: {source}")
+
+    st.sidebar.metric(
+        "Tổng số bản ghi",
+        f"{len(df):,}"
+    )
+
+    st.sidebar.write(
+        "**Thời gian bắt đầu:**",
+        df["Thời_gian"].min().strftime("%d/%m/%Y %H:%M")
+    )
+
+    st.sidebar.write(
+        "**Thời gian kết thúc:**",
+        df["Thời_gian"].max().strftime("%d/%m/%Y %H:%M")
+    )
+
+    # ==========================================
+    # 9. ĐIỀU KHIỂN TỐC ĐỘ
+    # ==========================================
+
+    st.header("1. Điều khiển mô phỏng")
+
+    speed_options = {
+        "1x - 1 giây = 1 phút": 1,
+        "2x - 1 giây = 2 phút": 2,
+        "5x - 1 giây = 5 phút": 5,
+        "10x - 1 giây = 10 phút": 10,
+        "30x - 1 giây = 30 phút": 30,
+        "60x - 1 giây = 1 giờ": 60
+    }
+
+    selected_speed = st.selectbox(
+        "Tốc độ phát dữ liệu",
+        list(speed_options.keys()),
+        index=0
+    )
+
+    speed = speed_options[selected_speed]
+
+    # ==========================================
+    # 10. CÁC NÚT ĐIỀU KHIỂN
+    # ==========================================
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+
+        if st.button("▶ BẮT ĐẦU", use_container_width=True):
+
+            st.session_state.playing = True
+            st.rerun()
+
+    with col2:
+
+        if st.button("⏸ TẠM DỪNG", use_container_width=True):
+
+            st.session_state.playing = False
+            st.rerun()
+
+    with col3:
+
+        if st.button("▶ TIẾP TỤC", use_container_width=True):
+
+            if st.session_state.current_index >= len(df) - 1:
+                st.session_state.current_index = 0
+
+            st.session_state.playing = True
+            st.rerun()
+
+    with col4:
+
+        if st.button("↺ ĐẶT LẠI", use_container_width=True):
+
+            st.session_state.playing = False
+            st.session_state.current_index = 0
+            st.rerun()
+
+    # ==========================================
+    # 11. ĐIỀU HƯỚNG THỜI GIAN
+    # ==========================================
+
+    st.subheader("Điều hướng thời gian")
+
+    min_time = df["Thời_gian"].min()
+    max_time = df["Thời_gian"].max()
+
+    selected_time = st.datetime_input(
+        "Chọn ngày và giờ muốn xem",
+        value=df.iloc[
+            st.session_state.current_index
+        ]["Thời_gian"].to_pydatetime(),
+        min_value=min_time.to_pydatetime(),
+        max_value=max_time.to_pydatetime(),
+        key="selected_datetime"
+    )
+
+    if st.button("⏩ CHUYỂN ĐẾN THỜI ĐIỂM"):
+
+        target_time = pd.Timestamp(selected_time)
+
+        target_index = (
+            df["Thời_gian"] - target_time
+        ).abs().idxmin()
+
+        st.session_state.current_index = int(target_index)
 
         st.rerun()
 
+    # ==========================================
+    # 12. TUA NHANH VÀ TUA LÙI
+    # ==========================================
 
-# =========================================================
-# 8. ĐIỀU KHIỂN PHÁT LẠI
-# =========================================================
+    st.subheader("Tua nhanh / Tua lùi")
 
-st.sidebar.divider()
+    col_back, col_forward = st.columns(2)
 
-st.sidebar.header("⏯️ ĐIỀU KHIỂN PHÁT LẠI")
+    with col_back:
 
-speed = st.sidebar.selectbox(
-    "Tốc độ phát",
-    options=[1, 2, 5, 10, 30, 60],
-    format_func=lambda x: f"{x}x",
-    index=0
-)
+        if st.button("⏪ LÙI 60 BẢN GHI", use_container_width=True):
 
-st.session_state.playback_speed = speed
+            st.session_state.current_index = max(
+                0,
+                st.session_state.current_index - 60
+            )
 
-col1, col2 = st.sidebar.columns(2)
+            st.rerun()
 
-if col1.button(
-    "▶ Phát",
-    use_container_width=True
-):
+    with col_forward:
 
-    st.session_state.playing = True
-    st.rerun()
+        if st.button("⏩ TIẾN 60 BẢN GHI", use_container_width=True):
 
+            st.session_state.current_index = min(
+                len(df) - 1,
+                st.session_state.current_index + 60
+            )
 
-if col2.button(
-    "⏸ Tạm dừng",
-    use_container_width=True
-):
+            st.rerun()
 
-    st.session_state.playing = False
-    st.rerun()
+    # ==========================================
+    # 13. TỰ ĐỘNG PHÁT DỮ LIỆU
+    # ==========================================
 
+    if st.session_state.playing:
 
-# =========================================================
-# 9. TUA THEO KHOẢNG THỜI GIAN
-# =========================================================
-
-def move_time(minutes):
-
-    current_time = df.iloc[
-        st.session_state.current_index
-    ]["Thời_gian"]
-
-    target = current_time + pd.Timedelta(
-        minutes=minutes
-    )
-
-    target = min(
-        max(target, min_time),
-        max_time
-    )
-
-    st.session_state.current_index = (
-        find_nearest_index(target)
-    )
-
-    st.session_state.playing = False
-
-
-st.sidebar.subheader("⏩ Tua thời gian")
-
-col1, col2 = st.sidebar.columns(2)
-
-if col1.button("↶ -1 phút", use_container_width=True):
-    move_time(-1)
-
-if col2.button("+1 phút ↷", use_container_width=True):
-    move_time(1)
-
-col3, col4 = st.sidebar.columns(2)
-
-if col3.button("-1 giờ", use_container_width=True):
-    move_time(-60)
-
-if col4.button("+1 giờ", use_container_width=True):
-    move_time(60)
-
-
-col5, col6 = st.sidebar.columns(2)
-
-if col5.button("⏮ Về đầu", use_container_width=True):
-
-    st.session_state.current_index = 0
-    st.session_state.playing = False
-
-if col6.button("⏭ Đến cuối", use_container_width=True):
-
-    st.session_state.current_index = total_rows - 1
-    st.session_state.playing = False
-
-
-# =========================================================
-# 10. PHÁT LẠI TỰ ĐỘNG
-# =========================================================
-
-if st.session_state.playing:
-
-    st_autorefresh(
-        interval=1000,
-        key="playback_refresh"
-    )
-
-    new_index = (
-        st.session_state.current_index
-        + st.session_state.playback_speed
-    )
-
-    st.session_state.current_index = min(
-        new_index,
-        total_rows - 1
-    )
-
-    if st.session_state.current_index >= total_rows - 1:
-
-        st.session_state.playing = False
-
-
-# =========================================================
-# 11. LẤY DỮ LIỆU HIỆN TẠI
-# =========================================================
-
-current_index = st.session_state.current_index
-
-current = df.iloc[current_index]
-
-current_time = current["Thời_gian"]
-
-current_status = str(
-    current["Ket_qua_tong_hop"]
-)
-
-
-# =========================================================
-# 12. THÔNG TIN TỔNG QUAN
-# =========================================================
-
-st.divider()
-
-st.subheader("📊 TRẠNG THÁI THIẾT BỊ")
-
-col1, col2, col3 = st.columns(3)
-
-col1.metric(
-    "Thời gian hiện tại",
-    current_time.strftime("%d/%m/%Y %H:%M:%S")
-)
-
-col2.metric(
-    "Vị trí bản ghi",
-    f"{current_index + 1:,}/{total_rows:,}"
-)
-
-col3.metric(
-    "Trạng thái máy",
-    current_status
-)
-
-st.progress(
-    (current_index + 1) / total_rows
-)
-
-
-# =========================================================
-# 13. HIỂN THỊ CẢNH BÁO
-# =========================================================
-
-st.divider()
-
-st.subheader("🚨 KẾT QUẢ GIÁM SÁT")
-
-if current_status == "Bình thường":
-
-    st.success("Thiết bị đang ở trạng thái bình thường.")
-
-elif current_status == "Cần theo dõi":
-
-    st.warning("Thiết bị cần được theo dõi.")
-
-elif current_status == "Cảnh báo":
-
-    st.warning("Phát hiện trạng thái cảnh báo.")
-
-elif current_status == "Nguy cơ cao":
-
-    st.error("Phát hiện nguy cơ sự cố cao.")
-
-else:
-
-    st.info(
-        f"Trạng thái thiết bị: {current_status}"
-    )
-
-
-# =========================================================
-# 14. THÔNG SỐ 6 CẢM BIẾN
-# =========================================================
-
-st.divider()
-
-st.subheader("📡 THÔNG SỐ CẢM BIẾN")
-
-sensor_cols = st.columns(3)
-
-for i, sensor in enumerate(SENSOR_COLUMNS):
-
-    value = current[sensor]
-
-    if pd.notna(value):
-        display_value = f"{value:.3f}"
-    else:
-        display_value = "N/A"
-
-    with sensor_cols[i % 3]:
-
-        st.metric(
-            SENSOR_NAMES[sensor],
-            display_value
+        st_autorefresh(
+            interval=1000,
+            key="auto_refresh"
         )
 
+        st.session_state.current_index = min(
+            st.session_state.current_index + speed,
+            len(df) - 1
+        )
 
-# =========================================================
-# 15. BIỂU ĐỒ 6 CẢM BIẾN
-# =========================================================
+        if st.session_state.current_index >= len(df) - 1:
 
-st.divider()
+            st.session_state.playing = False
 
-st.subheader("📈 BIỂU ĐỒ DIỄN BIẾN CẢM BIẾN")
+            st.warning("Đã phát hết dữ liệu!")
 
-history_size = st.selectbox(
-    "Số bản ghi lịch sử hiển thị",
-    options=[60, 120, 300, 600, 1000],
-    index=2
-)
+    # ==========================================
+    # 14. LẤY BẢN GHI HIỆN TẠI
+    # ==========================================
 
-start_index = max(
-    0,
-    current_index - history_size + 1
-)
+    current_index = st.session_state.current_index
 
-history = df.iloc[
-    start_index:current_index + 1
-].copy()
+    latest = df.iloc[current_index]
 
-for sensor in SENSOR_COLUMNS:
+    current_time = latest["Thời_gian"]
 
-    st.markdown(
-        f"**{SENSOR_NAMES[sensor]}**"
+    st.divider()
+
+    st.progress(
+        (current_index + 1) / len(df)
+    )
+
+    st.caption(
+        f"Đang xem bản ghi {current_index + 1:,} / {len(df):,}"
+    )
+
+    # ==========================================
+    # 15. TỔNG QUAN THIẾT BỊ
+    # ==========================================
+
+    st.header("2. Tổng quan thiết bị")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+
+        st.metric(
+            "Thiết bị",
+            "PUMP-01"
+        )
+
+    with col2:
+
+        st.metric(
+            "Trạng thái",
+            str(latest["Ket_qua_tong_hop"])
+        )
+
+    with col3:
+
+        st.metric(
+            "Thời gian mô phỏng",
+            current_time.strftime("%H:%M:%S %d/%m/%Y")
+        )
+
+    # ==========================================
+    # 16. THÔNG SỐ CẢM BIẾN
+    # ==========================================
+
+    st.divider()
+
+    st.header("3. Thông số cảm biến")
+
+    cols = st.columns(3)
+
+    for i, sensor in enumerate(sensor_columns):
+
+        with cols[i % 3]:
+
+            st.metric(
+                sensor_names[sensor],
+                f'{latest[sensor]:.2f} {sensor_units[sensor]}'
+            )
+
+    # ==========================================
+    # 17. BIỂU ĐỒ LỊCH SỬ
+    # ==========================================
+
+    st.divider()
+
+    st.header("4. Biểu đồ cảm biến")
+
+    history = df.iloc[:current_index + 1].tail(500)
+
+    selected_sensor = st.selectbox(
+        "Chọn cảm biến để xem biểu đồ",
+        sensor_columns,
+        format_func=lambda x: sensor_names[x]
     )
 
     fig = px.line(
         history,
         x="Thời_gian",
-        y=sensor,
-        labels={
-            "Thời_gian": "Thời gian",
-            sensor: SENSOR_NAMES[sensor]
-        }
+        y=selected_sensor,
+        title=sensor_names[selected_sensor]
     )
 
     fig.update_layout(
-        height=300,
-        hovermode="x unified",
-        margin=dict(l=20, r=20, t=20, b=20)
+        xaxis_title="Thời gian",
+        yaxis_title=sensor_units[selected_sensor],
+        hovermode="x unified"
     )
 
     st.plotly_chart(
@@ -553,88 +435,26 @@ for sensor in SENSOR_COLUMNS:
         use_container_width=True
     )
 
+    # ==========================================
+    # 18. LỊCH SỬ DỮ LIỆU
+    # ==========================================
 
-# =========================================================
-# 16. BẢNG LỊCH SỬ DỮ LIỆU
-# =========================================================
+    st.divider()
 
-st.divider()
+    st.header("5. Lịch sử dữ liệu đã phát")
 
-st.subheader("📋 LỊCH SỬ DỮ LIỆU")
+    st.dataframe(
+        df.iloc[:current_index + 1].tail(10),
+        use_container_width=True
+    )
 
-display_columns = (
-    ["Thời_gian"]
-    + SENSOR_COLUMNS
-    + ["Ket_qua_tong_hop"]
-)
+except FileNotFoundError:
 
-st.dataframe(
-    history[display_columns].tail(100),
-    use_container_width=True,
-    hide_index=True
-)
+    st.error(
+        "Không tìm thấy ket_qua_canh_bao.csv. "
+        "Hãy kiểm tra vị trí file."
+    )
 
+except Exception as e:
 
-# =========================================================
-# 17. THỐNG KÊ TRẠNG THÁI
-# =========================================================
-
-st.divider()
-
-st.subheader("📊 THỐNG KÊ TRẠNG THÁI TOÀN BỘ DỮ LIỆU")
-
-status_counts = (
-    df["Ket_qua_tong_hop"]
-    .value_counts()
-    .reset_index()
-)
-
-status_counts.columns = [
-    "Trạng thái",
-    "Số lượng"
-]
-
-fig_status = px.pie(
-    status_counts,
-    names="Trạng thái",
-    values="Số lượng",
-    title="Phân bố trạng thái thiết bị"
-)
-
-st.plotly_chart(
-    fig_status,
-    use_container_width=True
-)
-
-
-# =========================================================
-# 18. TẢI DỮ LIỆU CSV
-# =========================================================
-
-st.divider()
-
-st.subheader("⬇️ XUẤT DỮ LIỆU")
-
-csv_data = df.to_csv(
-    index=False,
-    encoding="utf-8-sig"
-).encode("utf-8-sig")
-
-st.download_button(
-    label="📥 Tải toàn bộ dữ liệu CSV",
-    data=csv_data,
-    file_name="du_lieu_predictive_maintenance.csv",
-    mime="text/csv"
-)
-
-
-# =========================================================
-# 19. CHÂN TRANG
-# =========================================================
-
-st.divider()
-
-st.caption(
-    "Predictive Maintenance Dashboard | "
-    "Hệ thống giám sát và bảo trì dự đoán"
-)
+    st.error(f"Có lỗi xảy ra: {e}")
